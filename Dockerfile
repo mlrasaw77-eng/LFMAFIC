@@ -3,7 +3,7 @@ FROM python:3.10-slim
 
 # 2. Set folder kerja di dalam container
 WORKDIR /app
-
+#ini update baru
 # 3. Install tool dasar linux
 RUN apt-get update && apt-get install -y \
     build-essential \
