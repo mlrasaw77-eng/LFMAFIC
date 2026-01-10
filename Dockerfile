@@ -1,27 +1,26 @@
-# 1. Gunakan Python versi ringan
+# Gunakan Python Slim
 FROM python:3.10-slim
 
-# 2. Set folder kerja di dalam container
 WORKDIR /app
-#ini update baru
-# 3. Install tool dasar linux
+
+# 1. Install System Dependencies (Wajib untuk compile llama.cpp)
 RUN apt-get update && apt-get install -y \
     build-essential \
+    cmake \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Copy requirements
+# 2. Copy Requirements
 COPY requirements.txt .
 
-# 5. PENTING: Install PyTorch versi CPU-Only (Biar hemat storage & RAM)
-# Jika install versi biasa, ukurannya 4GB++. Versi ini cuma 200MB.
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# 6. Install sisa library (FastAPI, Transformers, dll)
+# 3. Upgrade PIP & Install Library
+# Kita install llama-cpp-python pre-built atau compile manual
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 7. Copy kode main.py ke dalam container
+# 4. Copy Code
 COPY . .
 
-# 8. Perintah untuk menjalankan aplikasi
-# Kita gunakan variable $PORT yang disediakan Railway
+# 5. Jalankan
 CMD uvicorn main:app --host 0.0.0.0 --port $PORT
