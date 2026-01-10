@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+transformers
+accelerate
+# PENTING: Jangan tulis torch di sini, kita install manual di Dockerfile agar dapat versi CPU

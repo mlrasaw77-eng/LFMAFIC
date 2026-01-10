@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environments ---
+# Folder environment python lokal (jika ada)
+venv/
+env/
+.env/
+.venv/
+
+# --- Environment Variables & Secrets (PENTING) ---
+# Jangan pernah upload file .env yang berisi password asli!
+.env
+.env.local
+.env.*
+
+# --- Docker ---
+# Folder volume database MySQL (dari docker-compose.yml) agar data lokal tidak naik ke git
+db_data/
+# Log docker (jika ada)
+*.log
+
+# --- IDE / Editor Settings ---
+# Settingan VS Code
+.vscode/
+# Settingan PyCharm
+.idea/
+# Settingan Mac/Windows
+.DS_Store
+Thumbs.db
+
+# --- Database ---
+# Jika ada file dump atau sqlite
+*.sqlite3
+*.db
+*.sql
+
+# --- Byte-compiled / Optimized / DLL files ---
+*.so
