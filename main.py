@@ -8,42 +8,41 @@ import os
 
 app = FastAPI()
 
-# --- LOAD MODEL (SUPER OPTIMIZED FOR 2 CORE, 4GB RAM) ---
-# GUNAKAN MODEL PALING RINGAN UNTUK KECEPATAN MAKSIMAL
+# --- LOAD MODEL (UPGRADED FOR BETTER JSON RELIABILITY) ---
 
-# OPSI 1: Qwen2.5-0.5B (PALING CEPAT - RECOMMENDED UNTUK VPS ANDA)
-REPO_ID = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
-FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"  # ~0.35GB, <5 detik response
+# OPSI 1: Qwen2.5-1.5B (RECOMMENDED - Reliable JSON, masih cepat)
+REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
+FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"  # ~1.0GB, ~15-20 detik response
 
-# OPSI 2: Qwen2.5-1.5B (Lebih akurat, masih cepat)
-# REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
-# FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"  # ~1.0GB, ~10-15 detik
+# OPSI 2: Qwen2.5-3B (Lebih akurat, tapi lebih lambat ~30-40 detik)
+# REPO_ID = "Qwen/Qwen2.5-3B-Instruct-GGUF"
+# FILENAME = "qwen2.5-3b-instruct-q4_k_m.gguf"  # ~2.0GB
 
-# OPSI 3: TinyLlama (Alternative)
-# REPO_ID = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
-# FILENAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"  # ~0.7GB
+# OPSI 3: Tetap Qwen-0.5B tapi dengan fallback/retry mechanism
+# REPO_ID = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+# FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
 try:
     llm = Llama.from_pretrained(
         repo_id=REPO_ID, 
         filename=FILENAME, 
-        n_ctx=1024,        # Kurangi drastis untuk kecepatan (dari 2048)
-        n_threads=2,       # Sesuai core CPU
-        n_batch=128,       # Batch lebih kecil lagi (dari 256)
+        n_ctx=2048,        # Naikkan context (dari 1024)
+        n_threads=2,       
+        n_batch=256,       # Naikkan batch (dari 128)
         verbose=False,
-        n_gpu_layers=0,    # CPU only
-        use_mmap=True,     # Memory mapping untuk efisiensi
-        use_mlock=False    # Jangan lock memory
+        n_gpu_layers=0,    
+        use_mmap=True,     
+        use_mlock=False    
     )
     print(f"✅ Server AI Siap | Model: {REPO_ID}")
-    print(f"📊 Config: 1024 ctx, 2 threads, 128 batch (ULTRA FAST MODE)")
+    print(f"📊 Config: 2048 ctx, 2 threads, 256 batch (BALANCED MODE)")
 except Exception as e:
     print(f"❌ Error loading model: {e}")
     exit(1)
 
 class AiRequest(BaseModel):
     prompt: str
-    max_tokens: int = 500  # Kurangi dari 800 untuk kecepatan
+    max_tokens: int = 800  # Naikkan dari 500 untuk output lebih lengkap
 
 def clean_json_output(text):
     """Ekstrak JSON dari output LLM"""
@@ -113,33 +112,22 @@ def generate_standard(request: AiRequest):
 @app.post("/generate-ahp")
 def generate_ahp(request: AiRequest):
     try:
-        print(f"📥 Received prompt: {request.prompt[:200]}...")  # Log prompt
-        
         output = llm.create_chat_completion(
             messages=[{"role": "user", "content": request.prompt}],
             max_tokens=request.max_tokens,
             response_format={"type": "json_object"},
             temperature=0.7
         )
-        
-        print(f"🤖 Raw output: {output['choices'][0]['message']['content'][:200]}...")  # Log output
-        
         data = json.loads(clean_json_output(output['choices'][0]['message']['content']))
         
         # Terapkan AHP ranking jika ada recommendations
         if 'recommendations' in data:
-            print(f"📊 Found {len(data['recommendations'])} recommendations, applying AHP...")
             data['recommendations'] = calculate_ahp_ranking(data['recommendations'])
         
         return data
     except json.JSONDecodeError as e:
-        print(f"❌ JSON Error: {str(e)}")
-        print(f"Raw content: {output['choices'][0]['message']['content']}")
         raise HTTPException(status_code=500, detail=f"Invalid JSON from model: {str(e)}")
     except Exception as e:
-        print(f"❌ General Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
