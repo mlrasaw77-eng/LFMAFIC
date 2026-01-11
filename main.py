@@ -26,9 +26,12 @@ try:
     llm = Llama.from_pretrained(
         repo_id=REPO_ID, 
         filename=FILENAME, 
-        n_ctx=2048,        # Naikkan context (dari 1024)
-        n_threads=2,       
-        n_batch=256,       # Naikkan batch (dari 128)
+        n_ctx=2048,
+        # UBAH INI: Gunakan 1 thread saja jika VPS kamu hanya 2 core
+        # agar sistem operasi masih punya sisa CPU untuk bernapas.
+        n_threads=1,       
+        # TURUNKAN INI: Dari 256 ke 128 untuk mengurangi lonjakan CPU saat loading
+        n_batch=128,       
         verbose=False,
         n_gpu_layers=0,    
         use_mmap=True,     
@@ -131,11 +134,12 @@ def generate_ahp(request: AiRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    # Mengambil port dari environment variable, default ke 8001 jika tidak ada
     port = int(os.getenv("PORT", 8001)) 
     uvicorn.run(
         app, 
         host="0.0.0.0", 
         port=port,
-        workers=1  # Single worker untuk hemat RAM
+        workers=1,
+        # TAMBAHKAN INI: Beri waktu lebih lama untuk koneksi tetap terbuka
+        timeout_keep_alive=60 
     )
