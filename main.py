@@ -8,88 +8,99 @@ import os
 
 app = FastAPI()
 
-# --- KONFIGURASI MODEL (GGUF) ---
-# Menggunakan Qwen 2.5 1.5B (Sangat cerdas, sangat ringan untuk CPU)
+# --- KONFIGURASI MODEL ---
 REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
 FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 
 print("--- SYSTEM CHECK ---")
-print(f"--- SEDANG MEMUAT MODEL GGUF: {REPO_ID} ---")
+print(f"--- SEDANG MEMUAT MODEL: {REPO_ID} ---")
 
 try:
-    # n_ctx=2048: Context window (bisa dinaikkan jika RAM cukup, misal 4096)
-    # n_threads=2: Sesuaikan dengan jumlah Core CPU VPS kamu
+    # UPDATED: n_ctx dinaikkan ke 4096 agar kuat menampung prompt panjang dari Laravel
     llm = Llama.from_pretrained(
         repo_id=REPO_ID,
         filename=FILENAME,
-        n_ctx=2048,
+        n_ctx=4096, 
         n_threads=2, 
         verbose=False
     )
-    print("✅ Model Berhasil Dimuat (Mode Hemat RAM)!")
+    print("✅ Model Berhasil Dimuat (Setting: Context 4096, Threads 2)!")
 
 except Exception as e:
     print(f"❌ Gagal memuat model: {str(e)}")
     exit(1)
 
-# Struktur Data Request
 class AiRequest(BaseModel):
     prompt: str
-    max_tokens: int = 512 # Jangan terlalu besar di CPU
+    max_tokens: int = 800 # Default dinaikkan sedikit
 
 def clean_json_output(text):
-    """Membersihkan output agar menjadi JSON murni"""
+    """Membersihkan markdown block ```json ... ``` agar menjadi raw JSON"""
+    # Hapus ```json di awal
     text = re.sub(r'```json\s*', '', text)
+    # Hapus ``` di akhir
     text = re.sub(r'```', '', text)
+    # Ambil hanya yang ada di dalam kurung kurawal pertama dan terakhir
     match = re.search(r'(\{.*\})', text, re.DOTALL)
     if match:
         return match.group(1)
-    return text
+    return text.strip()
 
 @app.get("/")
 def read_root():
-    return {"status": "Online", "device": "cpu-optimized", "model": REPO_ID}
+    return {"status": "Online", "model": REPO_ID}
 
 @app.post("/generate")
 def generate_text(request: AiRequest):
     try:
-        # System Prompt
+        # System Prompt yang lebih tegas
         messages = [
             {
                 "role": "system", 
-                "content": "You are a professional Career Consultant for Indonesian users. You MUST speak in standard, formal Indonesian (Bahasa Indonesia Baku). Output ONLY valid JSON."
+                "content": "You are a helpful AI Career Assistant. You output ONLY valid JSON. Do not output any conversational text outside the JSON block."
             },
             {"role": "user", "content": request.prompt}
         ]
 
-        # Generate menggunakan llama-cpp (Jauh lebih cepat dari transformers di CPU)
+        print(f"--- PROCESSING REQUEST (Length: {len(request.prompt)}) ---")
+
+        # Generate output
         output = llm.create_chat_completion(
             messages=messages,
             max_tokens=request.max_tokens,
-            temperature=0.3,
-            top_p=0.85,
+            # TUNING PENTING DISINI:
+            temperature=0.6,       # 0.6 - 0.7: Seimbang antara kreatif & patuh aturan
+            top_p=0.9,             # Variasi kata lebih luas
+            repeat_penalty=1.1,    # Mencegah AI mengulang-ulang prompt user
             response_format={
-                "type": "json_object" # Fitur native GGUF untuk memaksa output JSON
+                "type": "json_object" # Memaksa output JSON (native feature)
             }
         )
 
         response_text = output['choices'][0]['message']['content']
         
-        print(f"--- RAW OUTPUT ---\n{response_text}\n------------------")
+        # Debugging: Print output mentah ke terminal Docker
+        print(f"--- RAW OUTPUT FROM AI ---\n{response_text[:200]}...\n------------------")
 
         cleaned_json = clean_json_output(response_text)
         
         try:
-            return json.loads(cleaned_json)
+            # Coba parse ke Python Dict
+            data = json.loads(cleaned_json)
+            return data
         except json.JSONDecodeError:
+            print("❌ JSON Decode Error. Raw text was invalid.")
+            # Fallback jika gagal parse, agar Laravel tidak crash total
             return {
-                "summary": "Maaf, format error.",
+                "summary": "Terjadi kesalahan format data dari AI.",
+                "skillGaps": [],
                 "recommendations": [],
-                "nextSteps": ["Coba lagi."]
+                "industryTrends": [],
+                "nextSteps": ["Silakan coba request ulang."]
             }
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"❌ Server Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
