@@ -8,101 +8,125 @@ import os
 
 app = FastAPI()
 
-# --- LOAD MODEL (Sama seperti sebelumnya) ---
+# --- KONFIGURASI MODEL ---
 REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
 FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-# ... (Kode load model tetap sama) ...
+
+print("--- SYSTEM CHECK ---")
+print(f"--- MEMUAT MODEL AHP: {REPO_ID} ---")
+
 try:
     llm = Llama.from_pretrained(
-        repo_id=REPO_ID, filename=FILENAME, n_ctx=4096, n_threads=2, verbose=False
+        repo_id=REPO_ID,
+        filename=FILENAME,
+        n_ctx=4096, 
+        n_threads=2, 
+        verbose=False
     )
+    print("✅ Model Berhasil Dimuat dengan Dukungan AHP!")
 except Exception as e:
+    print(f"❌ Gagal: {str(e)}")
     exit(1)
 
 class AiRequest(BaseModel):
     prompt: str
-    max_tokens: int = 800
+    max_tokens: int = 1000
 
 def clean_json_output(text):
-    text = re.sub(r'```json\s*', '', text)
-    text = re.sub(r'```', '', text)
-    match = re.search(r'(\{.*\})', text, re.DOTALL)
-    if match: return match.group(1)
+    """Mengekstrak JSON murni dari output AI"""
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1:
+        return text[start:end+1]
     return text.strip()
 
-# --- FUNGSI LOGIKA AHP / RANKING ---
 def calculate_ahp_ranking(recommendations):
     """
-    Menghitung skor akhir berdasarkan bobot kriteria.
-    Asumsi Bobot AHP (Bisa dinamis tergantung user preference):
-    - Relevansi: 0.5 (50%)
-    - Waktu (Singkat): 0.3 (30%)
-    - Harga (Murah): 0.2 (20%)
+    LOGIKA AHP BERDASARKAN FILE EXCEL TUGAS AKHIR
     """
+    # Bobot Kriteria Utama (Eigen Vector Kriteria)
+    weights = {
+        'C1': 0.5148,  # Harga
+        'C2': 0.2393,  # Rating
+        'C3': 0.1327,  # Peminat
+        'C4': 0.0737,  # Durasi Belajar
+        'C5': 0.0395   # Tingkat Kesulitan
+    }
+
+    # Bobot Sub-Kriteria (Eigen Vector Normalisasi Sub-Kriteria)
+    rating_map = {
+        'Sangat Baik': 0.5148,
+        'Baik': 0.2393,
+        'Cukup': 0.1327,
+        'Kurang': 0.0737,
+        'Sangat Kurang': 0.0394
+    }
+
     ranked_results = []
-    
     for item in recommendations:
-        # Normalisasi nilai (Skala 1-10 yang diberikan AI)
-        # Relevansi: Semakin tinggi semakin baik
-        score_relevansi = item.get('relevance_score', 5)
-        
-        # Waktu: Semakin kecil (cepat) semakin baik. Kita balik nilainya.
-        # Jika AI kasih score 10 (sangat lama), maka nilainya jadi kecil.
-        # Rumus simplifikasi: 11 - score
-        raw_time = item.get('time_efficiency_score', 5)
-        score_waktu = 11 - raw_time 
+        # Ambil label dari AI, jika tidak ada/salah ketik default ke 'Cukup'
+        s_c1 = rating_map.get(item.get('harga_rating', 'Cukup'), 0.1327)
+        s_c2 = rating_map.get(item.get('rating_rating', 'Cukup'), 0.1327)
+        s_c3 = rating_map.get(item.get('peminat_rating', 'Cukup'), 0.1327)
+        s_c4 = rating_map.get(item.get('durasi_rating', 'Cukup'), 0.1327)
+        s_c5 = rating_map.get(item.get('kesulitan_rating', 'Cukup'), 0.1327)
 
-        # Harga: Semakin murah (score affordability tinggi) semakin baik
-        score_harga = item.get('affordability_score', 5)
-
-        # RUMUS AHP (Weighted Sum)
-        final_score = (score_relevansi * 0.5) + (score_waktu * 0.3) + (score_harga * 0.2)
+        # RUMUS: Total Skor = Σ (Bobot Kriteria * Bobot Rating)
+        total_score = (
+            (weights['C1'] * s_c1) +
+            (weights['C2'] * s_c2) +
+            (weights['C3'] * s_c3) +
+            (weights['C4'] * s_c4) +
+            (weights['C5'] * s_c5)
+        )
         
-        item['ahp_score'] = round(final_score, 2)
+        item['ahp_score'] = round(total_score, 4)
+        # Tambahkan label deskriptif untuk frontend
+        item['priority_rank'] = "High" if total_score > 0.3 else ("Medium" if total_score > 0.15 else "Low")
         ranked_results.append(item)
 
-    # Sort dari skor tertinggi ke terendah
+    # Urutkan berdasarkan skor tertinggi (Alternatif Terbaik)
     return sorted(ranked_results, key=lambda x: x['ahp_score'], reverse=True)
+
+@app.get("/")
+def read_root():
+    return {"status": "Online", "method": "AHP-Integrated", "model": REPO_ID}
 
 @app.post("/generate-ahp")
 def generate_ahp(request: AiRequest):
     try:
-        # Prompt khusus yang meminta AI memberikan SKOR ANGKA (1-10)
-        # Ini penting agar bisa dihitung matematis
-        system_prompt = """You are an AI Analyst. 
-        Your task is to recommend courses and assign NUMERICAL SCORES (1-10) for AHP calculation.
-        
-        Criteria Scoring Guide (1-10):
-        - relevance_score: 1 (Not relevant) to 10 (Perfect match).
-        - time_efficiency_score: 1 (Very long duration) to 10 (Very short/Fast).
-        - affordability_score: 1 (Expensive) to 10 (Free/Cheap).
-        """
-        
         messages = [
-            {"role": "system", "content": system_prompt},
+            {
+                "role": "system", 
+                "content": "You are a Decision Support System (DSS) using AHP method. Output ONLY valid JSON in Bahasa Indonesia."
+            },
             {"role": "user", "content": request.prompt}
         ]
 
         output = llm.create_chat_completion(
             messages=messages,
             max_tokens=request.max_tokens,
-            temperature=0.6,
+            temperature=0.7,
+            repeat_penalty=1.1,
             response_format={"type": "json_object"}
         )
 
-        cleaned_json = clean_json_output(output['choices'][0]['message']['content'])
+        response_text = output['choices'][0]['message']['content']
+        cleaned_json = clean_json_output(response_text)
         data = json.loads(cleaned_json)
 
-        # --- PROSES AHP DI PYTHON ---
-        # Jika AI mengembalikan list rekomendasi, kita hitung rankingnya
+        # Proses Ranking AHP jika ada list rekomendasi
         if 'recommendations' in data and isinstance(data['recommendations'], list):
-            # Update list dengan urutan baru hasil hitungan matematika
             data['recommendations'] = calculate_ahp_ranking(data['recommendations'])
-            data['note'] = "Diurutkan menggunakan Metode Hybrid AHP (AI + Python Logic)"
+            data['ahp_metadata'] = {
+                "status": "Sorted by AHP Eigen Weights",
+                "top_priority": data['recommendations'][0]['title'] if data['recommendations'] else None
+            }
 
         return data
 
     except Exception as e:
+        print(f"❌ Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
