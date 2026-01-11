@@ -113,22 +113,33 @@ def generate_standard(request: AiRequest):
 @app.post("/generate-ahp")
 def generate_ahp(request: AiRequest):
     try:
+        print(f"📥 Received prompt: {request.prompt[:200]}...")  # Log prompt
+        
         output = llm.create_chat_completion(
             messages=[{"role": "user", "content": request.prompt}],
             max_tokens=request.max_tokens,
             response_format={"type": "json_object"},
             temperature=0.7
         )
+        
+        print(f"🤖 Raw output: {output['choices'][0]['message']['content'][:200]}...")  # Log output
+        
         data = json.loads(clean_json_output(output['choices'][0]['message']['content']))
         
         # Terapkan AHP ranking jika ada recommendations
         if 'recommendations' in data:
+            print(f"📊 Found {len(data['recommendations'])} recommendations, applying AHP...")
             data['recommendations'] = calculate_ahp_ranking(data['recommendations'])
         
         return data
     except json.JSONDecodeError as e:
+        print(f"❌ JSON Error: {str(e)}")
+        print(f"Raw content: {output['choices'][0]['message']['content']}")
         raise HTTPException(status_code=500, detail=f"Invalid JSON from model: {str(e)}")
     except Exception as e:
+        print(f"❌ General Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
