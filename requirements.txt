@@ -1,5 +1,6 @@
-fastapi
-uvicorn
-pydantic
-llama-cpp-python
-huggingface_hub
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.0
+llama-cpp-python==0.2.90
+huggingface_hub==0.20.0
+python-multipart==0.0.6
