@@ -1,4 +1,5 @@
 fastapi
 uvicorn
-huggingface_hub
+pydantic
 llama-cpp-python
+huggingface_hub
