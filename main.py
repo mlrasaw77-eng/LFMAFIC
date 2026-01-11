@@ -8,99 +8,101 @@ import os
 
 app = FastAPI()
 
-# --- KONFIGURASI MODEL ---
+# --- LOAD MODEL (Sama seperti sebelumnya) ---
 REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
 FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-
-print("--- SYSTEM CHECK ---")
-print(f"--- SEDANG MEMUAT MODEL: {REPO_ID} ---")
-
+# ... (Kode load model tetap sama) ...
 try:
-    # UPDATED: n_ctx dinaikkan ke 4096 agar kuat menampung prompt panjang dari Laravel
     llm = Llama.from_pretrained(
-        repo_id=REPO_ID,
-        filename=FILENAME,
-        n_ctx=4096, 
-        n_threads=2, 
-        verbose=False
+        repo_id=REPO_ID, filename=FILENAME, n_ctx=4096, n_threads=2, verbose=False
     )
-    print("✅ Model Berhasil Dimuat (Setting: Context 4096, Threads 2)!")
-
 except Exception as e:
-    print(f"❌ Gagal memuat model: {str(e)}")
     exit(1)
 
 class AiRequest(BaseModel):
     prompt: str
-    max_tokens: int = 800 # Default dinaikkan sedikit
+    max_tokens: int = 800
 
 def clean_json_output(text):
-    """Membersihkan markdown block ```json ... ``` agar menjadi raw JSON"""
-    # Hapus ```json di awal
     text = re.sub(r'```json\s*', '', text)
-    # Hapus ``` di akhir
     text = re.sub(r'```', '', text)
-    # Ambil hanya yang ada di dalam kurung kurawal pertama dan terakhir
     match = re.search(r'(\{.*\})', text, re.DOTALL)
-    if match:
-        return match.group(1)
+    if match: return match.group(1)
     return text.strip()
 
-@app.get("/")
-def read_root():
-    return {"status": "Online", "model": REPO_ID}
+# --- FUNGSI LOGIKA AHP / RANKING ---
+def calculate_ahp_ranking(recommendations):
+    """
+    Menghitung skor akhir berdasarkan bobot kriteria.
+    Asumsi Bobot AHP (Bisa dinamis tergantung user preference):
+    - Relevansi: 0.5 (50%)
+    - Waktu (Singkat): 0.3 (30%)
+    - Harga (Murah): 0.2 (20%)
+    """
+    ranked_results = []
+    
+    for item in recommendations:
+        # Normalisasi nilai (Skala 1-10 yang diberikan AI)
+        # Relevansi: Semakin tinggi semakin baik
+        score_relevansi = item.get('relevance_score', 5)
+        
+        # Waktu: Semakin kecil (cepat) semakin baik. Kita balik nilainya.
+        # Jika AI kasih score 10 (sangat lama), maka nilainya jadi kecil.
+        # Rumus simplifikasi: 11 - score
+        raw_time = item.get('time_efficiency_score', 5)
+        score_waktu = 11 - raw_time 
 
-@app.post("/generate")
-def generate_text(request: AiRequest):
+        # Harga: Semakin murah (score affordability tinggi) semakin baik
+        score_harga = item.get('affordability_score', 5)
+
+        # RUMUS AHP (Weighted Sum)
+        final_score = (score_relevansi * 0.5) + (score_waktu * 0.3) + (score_harga * 0.2)
+        
+        item['ahp_score'] = round(final_score, 2)
+        ranked_results.append(item)
+
+    # Sort dari skor tertinggi ke terendah
+    return sorted(ranked_results, key=lambda x: x['ahp_score'], reverse=True)
+
+@app.post("/generate-ahp")
+def generate_ahp(request: AiRequest):
     try:
-        # System Prompt yang lebih tegas
+        # Prompt khusus yang meminta AI memberikan SKOR ANGKA (1-10)
+        # Ini penting agar bisa dihitung matematis
+        system_prompt = """You are an AI Analyst. 
+        Your task is to recommend courses and assign NUMERICAL SCORES (1-10) for AHP calculation.
+        
+        Criteria Scoring Guide (1-10):
+        - relevance_score: 1 (Not relevant) to 10 (Perfect match).
+        - time_efficiency_score: 1 (Very long duration) to 10 (Very short/Fast).
+        - affordability_score: 1 (Expensive) to 10 (Free/Cheap).
+        """
+        
         messages = [
-            {
-                "role": "system", 
-                "content": "You are a helpful AI Career Assistant. You output ONLY valid JSON. Do not output any conversational text outside the JSON block."
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": request.prompt}
         ]
 
-        print(f"--- PROCESSING REQUEST (Length: {len(request.prompt)}) ---")
-
-        # Generate output
         output = llm.create_chat_completion(
             messages=messages,
             max_tokens=request.max_tokens,
-            # TUNING PENTING DISINI:
-            temperature=0.6,       # 0.6 - 0.7: Seimbang antara kreatif & patuh aturan
-            top_p=0.9,             # Variasi kata lebih luas
-            repeat_penalty=1.1,    # Mencegah AI mengulang-ulang prompt user
-            response_format={
-                "type": "json_object" # Memaksa output JSON (native feature)
-            }
+            temperature=0.6,
+            response_format={"type": "json_object"}
         )
 
-        response_text = output['choices'][0]['message']['content']
-        
-        # Debugging: Print output mentah ke terminal Docker
-        print(f"--- RAW OUTPUT FROM AI ---\n{response_text[:200]}...\n------------------")
+        cleaned_json = clean_json_output(output['choices'][0]['message']['content'])
+        data = json.loads(cleaned_json)
 
-        cleaned_json = clean_json_output(response_text)
-        
-        try:
-            # Coba parse ke Python Dict
-            data = json.loads(cleaned_json)
-            return data
-        except json.JSONDecodeError:
-            print("❌ JSON Decode Error. Raw text was invalid.")
-            # Fallback jika gagal parse, agar Laravel tidak crash total
-            return {
-                "summary": "Terjadi kesalahan format data dari AI.",
-                "skillGaps": [],
-                "recommendations": [],
-                "industryTrends": [],
-                "nextSteps": ["Silakan coba request ulang."]
-            }
+        # --- PROSES AHP DI PYTHON ---
+        # Jika AI mengembalikan list rekomendasi, kita hitung rankingnya
+        if 'recommendations' in data and isinstance(data['recommendations'], list):
+            # Update list dengan urutan baru hasil hitungan matematika
+            data['recommendations'] = calculate_ahp_ranking(data['recommendations'])
+            data['note'] = "Diurutkan menggunakan Metode Hybrid AHP (AI + Python Logic)"
+
+        return data
 
     except Exception as e:
-        print(f"❌ Server Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
