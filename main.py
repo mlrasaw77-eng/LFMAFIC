@@ -78,4 +78,6 @@ def generate_ahp(request: AiRequest):
     return data
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Mengambil port dari environment variable, default ke 8001 jika tidak ada
+    port = int(os.getenv("PORT", 8001)) 
+    uvicorn.run(app, host="0.0.0.0", port=port)
