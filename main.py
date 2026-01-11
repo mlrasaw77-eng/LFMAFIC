@@ -8,22 +8,18 @@ import os
 
 app = FastAPI()
 
-# --- LOAD MODEL (OPTIMIZED FOR 2 CORE, 4GB RAM) ---
-# Pilihan model berdasarkan kebutuhan:
+# --- LOAD MODEL (SUPER OPTIMIZED FOR 2 CORE, 4GB RAM) ---
+# GUNAKAN MODEL PALING RINGAN UNTUK KECEPATAN MAKSIMAL
 
-# OPSI 1: Phi-3.5 Mini (RECOMMENDED - Akurat & Cepat)
-REPO_ID = "bartowski/Phi-3.5-mini-instruct-GGUF"
-FILENAME = "Phi-3.5-mini-instruct-Q4_K_M.gguf"  # ~2.3GB
+# OPSI 1: Qwen2.5-0.5B (PALING CEPAT - RECOMMENDED UNTUK VPS ANDA)
+REPO_ID = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"  # ~0.35GB, <5 detik response
 
-# OPSI 2: Qwen2.5-1.5B (Paling Ringan & Cepat)
+# OPSI 2: Qwen2.5-1.5B (Lebih akurat, masih cepat)
 # REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
-# FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"  # ~1.0GB
+# FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"  # ~1.0GB, ~10-15 detik
 
-# OPSI 3: Gemma-2-2B (Google, Bagus untuk JSON)
-# REPO_ID = "bartowski/gemma-2-2b-it-GGUF"
-# FILENAME = "gemma-2-2b-it-Q4_K_M.gguf"  # ~1.5GB
-
-# OPSI 4: TinyLlama (Tercepat, tapi kurang akurat)
+# OPSI 3: TinyLlama (Alternative)
 # REPO_ID = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
 # FILENAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"  # ~0.7GB
 
@@ -31,21 +27,23 @@ try:
     llm = Llama.from_pretrained(
         repo_id=REPO_ID, 
         filename=FILENAME, 
-        n_ctx=2048,        # Kurangi context untuk hemat RAM (dari 4096)
+        n_ctx=1024,        # Kurangi drastis untuk kecepatan (dari 2048)
         n_threads=2,       # Sesuai core CPU
-        n_batch=256,       # Batch size lebih kecil
+        n_batch=128,       # Batch lebih kecil lagi (dari 256)
         verbose=False,
-        n_gpu_layers=0     # Pastikan CPU only (tidak ada GPU)
+        n_gpu_layers=0,    # CPU only
+        use_mmap=True,     # Memory mapping untuk efisiensi
+        use_mlock=False    # Jangan lock memory
     )
     print(f"✅ Server AI Siap | Model: {REPO_ID}")
-    print(f"📊 Config: 2048 ctx, 2 threads, 256 batch")
+    print(f"📊 Config: 1024 ctx, 2 threads, 128 batch (ULTRA FAST MODE)")
 except Exception as e:
     print(f"❌ Error loading model: {e}")
     exit(1)
 
 class AiRequest(BaseModel):
     prompt: str
-    max_tokens: int = 800  # Kurangi dari 1000 untuk performa
+    max_tokens: int = 500  # Kurangi dari 800 untuk kecepatan
 
 def clean_json_output(text):
     """Ekstrak JSON dari output LLM"""
