@@ -11,21 +11,21 @@ app = FastAPI()
 # --- LOAD MODEL (OPTIMIZED FOR 2 CORE, 4GB RAM) ---
 # Pilihan model berdasarkan kebutuhan:
 
-# OPSI 1: Phi-3.5 Mini (TERCEPAT & PALING RINGAN) - RECOMMENDED
-REPO_ID = "microsoft/Phi-3.5-mini-instruct-gguf"
-FILENAME = "Phi-3.5-mini-instruct-q4_k_m.gguf"  # ~2.1GB, sangat cepat
+# OPSI 1: Phi-3.5 Mini (RECOMMENDED - Akurat & Cepat)
+REPO_ID = "bartowski/Phi-3.5-mini-instruct-GGUF"
+FILENAME = "Phi-3.5-mini-instruct-Q4_K_M.gguf"  # ~2.3GB
 
-# OPSI 2: Qwen2.5-1.5B (Seimbang)
+# OPSI 2: Qwen2.5-1.5B (Paling Ringan & Cepat)
 # REPO_ID = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
 # FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"  # ~1.0GB
 
-# OPSI 3: TinyLlama (Paling Kecil, tapi kurang akurat)
-# REPO_ID = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
-# FILENAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"  # ~0.7GB
-
-# OPSI 4: Gemma-2-2B (Google, bagus untuk JSON)
+# OPSI 3: Gemma-2-2B (Google, Bagus untuk JSON)
 # REPO_ID = "bartowski/gemma-2-2b-it-GGUF"
 # FILENAME = "gemma-2-2b-it-Q4_K_M.gguf"  # ~1.5GB
+
+# OPSI 4: TinyLlama (Tercepat, tapi kurang akurat)
+# REPO_ID = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
+# FILENAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"  # ~0.7GB
 
 try:
     llm = Llama.from_pretrained(
